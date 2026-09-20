@@ -80,9 +80,18 @@ public protocol DeviceGatewayAPI: AnyObject, Sendable {
     func afcListDirectory(bundleId: String, path: String) async throws -> [String]
     func afcReadFile(bundleId: String, path: String) async throws -> Data
     func afcGetFileInfo(bundleId: String, path: String) async throws -> (isDirectory: Bool, fileSize: Int64)
+
+    /// Watch companion spike (issue #229): prove watch lockdownd is reachable
+    /// via companion_proxy and pair with it. Returns a human-readable log.
+    func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String
 }
 
 public extension DeviceGatewayAPI {
+    // Default: only the idevice gateway supports the watch companion probe.
+    func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String {
+        throw DeviceGatewayError(.unsupportedOperation, reason: "watchCompanionProbe")
+    }
+
     // Active service port for the currently loaded pairing file mode
     var servicePort: UInt16 {
         getPort(for: pairingFileType)

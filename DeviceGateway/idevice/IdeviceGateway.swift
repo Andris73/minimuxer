@@ -37,7 +37,7 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
     public static let shared = IdeviceGateway()
     var lastError: Error? = nil
 
-    private func getRustPlistString(_ node: plist_t) -> String? {
+    func getRustPlistString(_ node: plist_t) -> String? {
         var valPtr: UnsafeMutablePointer<Int8>? = nil
         plist_get_string_val(node, &valPtr)
         if let ptr = valPtr {
@@ -48,14 +48,14 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
         return nil
     }
 
-    private func getErrorMessage(from err: UnsafeMutablePointer<IdeviceFfiError>) -> String {
+    func getErrorMessage(from err: UnsafeMutablePointer<IdeviceFfiError>) -> String {
         if let msgPtr = err.pointee.message {
             return String(cString: msgPtr).cleanedErrorFormatting
         }
         return "Error code \(err.pointee.code)"
     }
 
-    private func safeFreeError(_ err: UnsafeMutablePointer<IdeviceFfiError>?) {
+    func safeFreeError(_ err: UnsafeMutablePointer<IdeviceFfiError>?) {
         guard let err = err else { return }
         let addr = Int(bitPattern: err)
         if addr > 0xff {
@@ -63,7 +63,7 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
         }
     }
 
-    private func safeFreePlist(_ plist: plist_t?) {
+    func safeFreePlist(_ plist: plist_t?) {
         guard let plist = plist else { return }
         let addr = Int(bitPattern: plist)
         if addr > 0xff {
@@ -320,7 +320,7 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
         return false
     }
 
-    private func performWithService<T>(
+    func performWithService<T>(
         connect: @escaping (OpaquePointer?, OpaquePointer?, UnsafeMutablePointer<OpaquePointer?>?) -> UnsafeMutablePointer<IdeviceFfiError>?,
         cleanup: @escaping (OpaquePointer?) -> Void,
         serviceName: String,

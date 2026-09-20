@@ -428,6 +428,12 @@ final internal class MinimuxerImpl: MinimuxerAPI {
         }
     }
 
+    func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String {
+        try await matchingPriority{
+            try await self.gateway.watchCompanionProbe(progress: progress)
+        }
+    }
+
     func sendIpaAfc(bundleId: String, ipaBytes: Data) async throws {
         try await matchingPriority{
             try await self.gateway.sendIpaAfc(bundleId: bundleId, ipaBytes: ipaBytes)
