@@ -40,8 +40,8 @@ let package = Package(
     targets: [
          .binaryTarget(
              name: "IDevice",
-             url: "https://github.com/SideStore/idevice/releases/download/v0.1.68-ss-f34cfd3/idevice-xcframework-v0.1.68-ss-f34cfd3.zip#DeviceGateway",
-             checksum: "742460235b09c0a3dc2f308c44b2151eebe3a86df9f3df8df554ee44c954e98b"
+             url: "https://github.com/Andris73/idevice/releases/download/v0.1.68-ss-cp229/idevice-xcframework-v0.1.68-ss-cp229.zip#DeviceGateway",
+             checksum: "8a57eb2bb7b944677b933ea12635b2c80a8e8c22a9dbc144fa3d6f7f5eede60f"
          ),
 //        .binaryTarget(
 //            name: "IDevice",
