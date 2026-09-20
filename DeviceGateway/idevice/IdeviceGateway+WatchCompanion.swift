@@ -136,6 +136,7 @@ extension IdeviceGateway {
                 step("5: TCP connect \(host):\(localPort) (attempt \(attempt))…")
                 var dev: OpaquePointer? = nil
                 var addr = sockaddr_in()
+                addr.sin_len = __uint8_t(MemoryLayout<sockaddr_in>.size)
                 addr.sin_family = sa_family_t(AF_INET)
                 addr.sin_port = localPort.bigEndian
                 addr.sin_addr.s_addr = inet_addr(host)
