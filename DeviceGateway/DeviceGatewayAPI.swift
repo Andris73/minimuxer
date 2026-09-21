@@ -84,12 +84,20 @@ public protocol DeviceGatewayAPI: AnyObject, Sendable {
     /// Watch companion spike (issue #229): prove watch lockdownd is reachable
     /// via companion_proxy and pair with it. Returns a human-readable log.
     func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String
+
+    /// Issue #229: install already-signed Watch app bundles (local .app URLs on
+    /// the phone) onto the paired watch via companion_proxy + streaming_zip_conduit.
+    func installWatchApps(_ watchAppURLs: [URL], progress: (@Sendable (String) -> Void)?) async throws
 }
 
 public extension DeviceGatewayAPI {
     // Default: only the idevice gateway supports the watch companion probe.
     func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String {
         throw DeviceGatewayError(.unsupportedOperation, reason: "watchCompanionProbe")
+    }
+
+    func installWatchApps(_ watchAppURLs: [URL], progress: (@Sendable (String) -> Void)?) async throws {
+        throw DeviceGatewayError(.unsupportedOperation, reason: "installWatchApps")
     }
 
     // Active service port for the currently loaded pairing file mode

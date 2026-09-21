@@ -105,6 +105,7 @@ public protocol MinimuxerAPI: AnyObject {
     func fetchUDID() async throws -> String?
     func testDeviceConnection(ifaddr: String, timeout: Int) -> Bool
     func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String
+    func installWatchApps(_ watchAppURLs: [URL], progress: (@Sendable (String) -> Void)?) async throws
 
     func sendIpaAfc(bundleId: String, ipaBytes: Data) async throws
     func sendAppBundleAfc(bundleId: String, appURL: URL) async throws
