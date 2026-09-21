@@ -128,11 +128,32 @@ extension IdeviceGateway {
 
     // MARK: - Install
 
+    /// Crash-durable breadcrumb: SideStore's own log buffer dies with the process on a
+    /// SIGSEGV, so the last watch step is lost. Append every step to a file in Documents
+    /// and fsync immediately, so a crash still leaves the exact stage on disk. Read it
+    /// back from the SideStore container after a crash.
+    static func watchBreadcrumb(_ line: String) {
+        guard let dir = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return }
+        let url = dir.appendingPathComponent("watch-install-trace.log")
+        let stamped = "\(Date().timeIntervalSince1970) \(line)\n"
+        guard let data = stamped.data(using: .utf8) else { return }
+        if let fh = try? FileHandle(forWritingTo: url) {
+            defer { try? fh.close() }
+            _ = try? fh.seekToEnd()
+            try? fh.write(contentsOf: data)
+            fsync(fh.fileDescriptor)
+        } else {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
     private func syncInstallWatchApps(_ watchAppURLs: [URL], progress: (@Sendable (String) -> Void)?) throws {
         var scratch = WatchCompanionSpikeResult()
+        Self.watchBreadcrumb("=== watch install run \(Date()) ===")
         func step(_ s: String) {
             progress?(s)
             debugLog("[WatchInstall] \(s)")
+            Self.watchBreadcrumb(s)
         }
 
         let session = try openWatchLockdownSession(step: step, result: &scratch)
