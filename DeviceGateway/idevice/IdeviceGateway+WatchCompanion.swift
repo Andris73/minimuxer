@@ -314,15 +314,27 @@ extension IdeviceGateway {
         let (hostID, systemBUID) = Self.watchHostIdentity(phonePairing: pairingDataDict)
         step("9: pairing with watch (HostID \(hostID.prefix(8))…) — WATCH TRUST PROMPT EXPECTED")
         var watchPairing: OpaquePointer? = nil
-        var pairErr = lockdownd_pair(lockdown, hostID, systemBUID, "SideStore", &watchPairing)
-        var waited = 0
-        while let err = pairErr, err.pointee.code == 30, waited < 60 {   // PairingDialogResponsePending
-            safeFreeError(err)
-            step("9: waiting for Trust on the watch… (\(waited)s)")
-            Thread.sleep(forTimeInterval: 3.0)
-            waited += 3
-            pairErr = lockdownd_pair(lockdown, hostID, systemBUID, "SideStore", &watchPairing)
-        }
+        // Pass C strings via explicit withCString: implicit String->char* bridging
+        // only guarantees the temporary for a single call expression, which is not
+        // safe across this FFI boundary (crashed strlen on a freed temp, build8).
+        // Keep the buffers alive for the whole pair-retry loop.
+        let pairErr: UnsafeMutablePointer<IdeviceFfiError>? =
+            hostID.withCString { hostIDPtr in
+                systemBUID.withCString { buidPtr in
+                    "SideStore".withCString { hostNamePtr -> UnsafeMutablePointer<IdeviceFfiError>? in
+                        var err = lockdownd_pair(lockdown, hostIDPtr, buidPtr, hostNamePtr, &watchPairing)
+                        var waited = 0
+                        while let e = err, e.pointee.code == 30, waited < 60 {   // PairingDialogResponsePending
+                            self.safeFreeError(e)
+                            step("9: waiting for Trust on the watch… (\(waited)s)")
+                            Thread.sleep(forTimeInterval: 3.0)
+                            waited += 3
+                            err = lockdownd_pair(lockdown, hostIDPtr, buidPtr, hostNamePtr, &watchPairing)
+                        }
+                        return err
+                    }
+                }
+            }
         if let err = pairErr {
             let msg = getErrorMessage(from: err)
             let code = err.pointee.code
@@ -357,7 +369,7 @@ extension IdeviceGateway {
     private func openWatchService(_ service: String, session: WatchLockdownSession, step: (String) -> Void) throws -> (device: OpaquePointer, remotePort: UInt16) {
         var remotePort: UInt16 = 0
         var ssl = false
-        if let err = lockdownd_start_service(session.lockdown, service, &remotePort, &ssl) {
+        if let err = service.withCString({ lockdownd_start_service(session.lockdown, $0, &remotePort, &ssl) }) {
             let msg = getErrorMessage(from: err)
             safeFreeError(err)
             throw IdeviceGatewayError(.serviceError, reason: "watch start_service(\(service)) failed: \(msg)")
@@ -392,7 +404,7 @@ extension IdeviceGateway {
         }
         defer { if let client { installation_proxy_client_free(client) } }
 
-        if let err = installation_proxy_uninstall(client, bundleID, nil) {
+        if let err = bundleID.withCString({ installation_proxy_uninstall(client, $0, nil) }) {
             // Missing bundle is expected on first install; stale coordinators surface via zip_conduit.
             let msg = getErrorMessage(from: err)
             safeFreeError(err)

@@ -94,7 +94,7 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
             throw IdeviceGatewayError(.serviceError, reason: "adapter_connect(\(port)) returned nil stream")
         }
         var dev: OpaquePointer? = nil
-        if let err = idevice_from_stream(stream, label, &dev) {   // consumes stream
+        if let err = label.withCString({ idevice_from_stream(stream, $0, &dev) }) {   // consumes stream
             let msg = getErrorMessage(from: err)
             safeFreeError(err)
             throw IdeviceGatewayError(.serviceError, reason: "idevice_from_stream for \(label) failed: \(msg)")
