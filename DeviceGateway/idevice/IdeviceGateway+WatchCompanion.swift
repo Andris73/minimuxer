@@ -195,38 +195,43 @@ extension IdeviceGateway {
         }
     }
 
-    /// TCP-connect to a port the phone is forwarding to the watch. Unknown which
-    /// address the phone binds when we are ON the phone: try loopback, then the
-    /// RSD tunnel endpoint.
+    /// Connect to a port that companion_proxy is forwarding to the watch.
+    ///
+    /// Build6 finding: from ON the phone, the forwarded port is NOT reachable
+    /// via a plain TCP socket on 127.0.0.1 or the tunnel peer IP (ECONNREFUSED
+    /// on both) — companion_proxy binds it on the device side of the RSD
+    /// tunnel. isideload gets away with `device_provider.connect(port)` because
+    /// its provider *is* the tunnel. So: open the port through our RSD adapter
+    /// and wrap the stream as an Idevice. Falls back to TCP loopback only if
+    /// the adapter path errors, to keep the old diagnostic signal.
     private func connectForwardedPort(_ localPort: UInt16, label: String, step: (String) -> Void) throws -> (OpaquePointer, String) {
-        var candidates: [String] = ["127.0.0.1"]
-        if let ep = deviceEndpointIp, !ep.isEmpty, ep != "127.0.0.1" { candidates.append(ep) }
-        var lastErrMsg = "no candidates attempted"
-        for host in candidates {
-            for attempt in 1...Self.forwardConnectAttempts {
-                var dev: OpaquePointer? = nil
-                var addr = sockaddr_in()
-                addr.sin_len = __uint8_t(MemoryLayout<sockaddr_in>.size)
-                addr.sin_family = sa_family_t(AF_INET)
-                addr.sin_port = localPort.bigEndian
-                addr.sin_addr.s_addr = inet_addr(host)
-                let err = withUnsafePointer(to: &addr) { aptr in
-                    aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sptr in
-                        idevice_new_tcp_socket(sptr, socklen_t(MemoryLayout<sockaddr_in>.size), "watch-\(label)", &dev)
-                    }
-                }
-                if err == nil, let dev {
-                    if attempt > 1 { step("W: \(label) connected on \(host):\(localPort) after \(attempt) attempts") }
-                    return (dev, host)
-                }
-                if let err {
-                    lastErrMsg = getErrorMessage(from: err)
-                    safeFreeError(err)
-                }
+        var lastErrMsg = "no attempts"
+        for attempt in 1...Self.forwardConnectAttempts {
+            do {
+                let dev = try connectViaAdapter(port: localPort, label: "watch-\(label)")
+                if attempt > 1 { step("W: \(label) connected via RSD adapter :\(localPort) after \(attempt) attempts") }
+                return (dev, "rsd-adapter")
+            } catch {
+                lastErrMsg = "\(error)"
                 Thread.sleep(forTimeInterval: Self.forwardConnectDelay)
             }
         }
-        throw IdeviceGatewayError(.serviceError, reason: "TCP connect to forwarded watch \(label) port \(localPort) failed on \(candidates.joined(separator: "/")): \(lastErrMsg)")
+        step("W: RSD adapter connect to :\(localPort) failed (\(lastErrMsg)); trying TCP loopback…")
+
+        var dev: OpaquePointer? = nil
+        var addr = sockaddr_in()
+        addr.sin_len = __uint8_t(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = localPort.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let err = withUnsafePointer(to: &addr) { aptr in
+            aptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sptr in
+                idevice_new_tcp_socket(sptr, socklen_t(MemoryLayout<sockaddr_in>.size), "watch-\(label)", &dev)
+            }
+        }
+        if err == nil, let dev { return (dev, "127.0.0.1") }
+        if let err { lastErrMsg = getErrorMessage(from: err); safeFreeError(err) }
+        throw IdeviceGatewayError(.serviceError, reason: "connect to forwarded watch \(label) port \(localPort) failed via RSD adapter and loopback: \(lastErrMsg)")
     }
 
     private func openWatchLockdownSession(step: (String) -> Void, result: inout WatchCompanionSpikeResult) throws -> WatchLockdownSession {

@@ -75,6 +75,36 @@ public final class IdeviceGateway: BaseDeviceGateway, DeviceGatewayAPI {
     private var adapter: OpaquePointer? = nil
     private var handshake: OpaquePointer? = nil
 
+    /// Issue #229: open a stream over the RSD tunnel adapter to `port` and wrap it
+    /// as an Idevice. Ports that companion_proxy forwards to the watch live on the
+    /// tunnel side, not on the phone's loopback, so this is the only way to reach
+    /// them from on-device. Caller owns the returned IdeviceHandle.
+    func connectViaAdapter(port: UInt16, label: String) throws -> OpaquePointer {
+        try ensureRPConnection()
+        guard let adapter else {
+            throw IdeviceGatewayError(.serviceError, reason: "RSD adapter unavailable for \(label)")
+        }
+        var stream: OpaquePointer? = nil
+        if let err = adapter_connect(adapter, port, &stream) {
+            let msg = getErrorMessage(from: err)
+            safeFreeError(err)
+            throw IdeviceGatewayError(.serviceError, reason: "adapter_connect(\(port)) for \(label) failed: \(msg)")
+        }
+        guard let stream else {
+            throw IdeviceGatewayError(.serviceError, reason: "adapter_connect(\(port)) returned nil stream")
+        }
+        var dev: OpaquePointer? = nil
+        if let err = idevice_from_stream(stream, label, &dev) {   // consumes stream
+            let msg = getErrorMessage(from: err)
+            safeFreeError(err)
+            throw IdeviceGatewayError(.serviceError, reason: "idevice_from_stream for \(label) failed: \(msg)")
+        }
+        guard let dev else {
+            throw IdeviceGatewayError(.serviceError, reason: "idevice_from_stream returned nil for \(label)")
+        }
+        return dev
+    }
+
     private override init() {
         try! super.init()
     }
