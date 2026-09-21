@@ -304,11 +304,14 @@ extension IdeviceGateway {
         }
         step("8: watch identity: \(result.watchProductType) watchOS \(result.watchOSVersion)")
 
-        guard let dict = pairingDataDict,
-              let hostID = dict["HostID"] as? String,
-              let systemBUID = dict["SystemBUID"] as? String else {
-            throw IdeviceGatewayError(.invalidPairingFile, reason: "Phone pairing record missing HostID/SystemBUID")
-        }
+        // build7 on hardware: reached the watch's lockdownd but SideStore's pairing
+        // file is RemotePairing-format — it has no HostID/SystemBUID. Those are NOT
+        // secrets from the phone's pairing; lockdownd_pair mints a fresh host
+        // identity (new keys) and these are just the identifiers written into the
+        // new record (libimobiledevice/pymobiledevice3 use random uppercase UUIDs).
+        // Prefer the phone's if a lockdown-format file is loaded, else use a stable
+        // per-install identity so the watch keeps trusting us across re-signs.
+        let (hostID, systemBUID) = Self.watchHostIdentity(phonePairing: pairingDataDict)
         step("9: pairing with watch (HostID \(hostID.prefix(8))…) — WATCH TRUST PROMPT EXPECTED")
         var watchPairing: OpaquePointer? = nil
         var pairErr = lockdownd_pair(lockdown, hostID, systemBUID, "SideStore", &watchPairing)
@@ -492,6 +495,28 @@ extension IdeviceGateway {
             let status = prog["Status"] as? String ?? "Unknown"
             step("W: installing on watch \(pct)% \(status)")
         }
+    }
+
+    // MARK: - Host identity for the watch pairing record
+
+    private static let hostIDKey = "sidestore.watch.hostID"
+    private static let systemBUIDKey = "sidestore.watch.systemBUID"
+
+    static func watchHostIdentity(phonePairing: [String: any Sendable]?) -> (hostID: String, systemBUID: String) {
+        if let d = phonePairing,
+           let h = d["HostID"] as? String, !h.isEmpty,
+           let b = d["SystemBUID"] as? String, !b.isEmpty {
+            return (h, b)
+        }
+        let ud = UserDefaults.standard
+        if let h = ud.string(forKey: hostIDKey), let b = ud.string(forKey: systemBUIDKey), !h.isEmpty, !b.isEmpty {
+            return (h, b)
+        }
+        let h = UUID().uuidString.uppercased()
+        let b = UUID().uuidString.uppercased()
+        ud.set(h, forKey: hostIDKey)
+        ud.set(b, forKey: systemBUIDKey)
+        return (h, b)
     }
 
     // MARK: - Raw framing helpers
