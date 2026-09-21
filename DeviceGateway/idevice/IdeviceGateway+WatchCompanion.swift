@@ -70,17 +70,38 @@ extension IdeviceGateway {
 
     // MARK: - Public API (DeviceGatewayAPI)
 
-    /// DeviceGatewayAPI conformance: run the spike synchronously off the main thread.
-    public func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String {
-        try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global(qos: .userInitiated).async {
+    /// Run `body` on a dedicated Thread with a large stack.
+    ///
+    /// build10-debug breadcrumb: SIGSEGV inside lockdownd_pair, BEFORE any Trust
+    /// prompt (so before the Pair request reached the watch). The only heavy local
+    /// work pair() does first is ca::generate_certificates -> RsaPrivateKey::new(2048)
+    /// + two cert signings, executed synchronously under LOCAL_RUNTIME.block_on on the
+    /// caller's thread. GCD worker threads have a 512 KB stack; RSA keygen in the `rsa`
+    /// crate blows it. Every other FFI call we make is a thin network round-trip and
+    /// never gets near the limit — which is exactly why steps 1–8 succeed and 9 dies.
+    /// isideload never hits this: it runs on a CLI main thread (8 MB stack).
+    private static let watchWorkStackSize = 16 * 1024 * 1024
+
+    private func runOnBigStackThread<T: Sendable>(_ name: String, _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<T, Error>) in
+            let thread = Thread {
                 do {
-                    let result = try self.watchCompanionSpike(progress: progress)
-                    cont.resume(returning: result.summary)
+                    cont.resume(returning: try body())
                 } catch {
                     cont.resume(throwing: error)
                 }
             }
+            thread.name = name
+            thread.stackSize = Self.watchWorkStackSize
+            thread.qualityOfService = .userInitiated
+            thread.start()
+        }
+    }
+
+    /// DeviceGatewayAPI conformance: run the spike synchronously off the main thread.
+    public func watchCompanionProbe(progress: (@Sendable (String) -> Void)?) async throws -> String {
+        try await runOnBigStackThread("watch-companion-probe") {
+            try self.watchCompanionSpike(progress: progress).summary
         }
     }
 
@@ -88,15 +109,8 @@ extension IdeviceGateway {
     /// the paired watch via companion_proxy + streaming_zip_conduit.
     public func installWatchApps(_ watchAppURLs: [URL], progress: (@Sendable (String) -> Void)?) async throws {
         guard !watchAppURLs.isEmpty else { return }
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try self.syncInstallWatchApps(watchAppURLs, progress: progress)
-                    cont.resume()
-                } catch {
-                    cont.resume(throwing: error)
-                }
-            }
+        try await runOnBigStackThread("watch-install") {
+            try self.syncInstallWatchApps(watchAppURLs, progress: progress)
         }
     }
 
