@@ -314,24 +314,18 @@ extension IdeviceGateway {
         let (hostID, systemBUID) = Self.watchHostIdentity(phonePairing: pairingDataDict)
         step("9: pairing with watch (HostID \(hostID.prefix(8))…) — WATCH TRUST PROMPT EXPECTED")
         var watchPairing: OpaquePointer? = nil
-        // Pass C strings via explicit withCString: implicit String->char* bridging
-        // only guarantees the temporary for a single call expression, which is not
-        // safe across this FFI boundary (crashed strlen on a freed temp, build8).
-        // Keep the buffers alive for the whole pair-retry loop.
+        // Call lockdownd_pair EXACTLY ONCE. The Rust pair() already loops internally
+        // on PairingDialogResponsePending (sleeps 1s and retries until the user taps
+        // Trust on the watch), so it blocks here and never returns code 30. build9
+        // crashed (SIGSEGV in lockdownd_do_pair) because our own retry loop called
+        // pair() a SECOND time on the same client whose state machine had already
+        // advanced. One call, one wait. C-strings kept alive for its full duration.
+        step("9: (this blocks until you tap Trust on the watch)")
         let pairErr: UnsafeMutablePointer<IdeviceFfiError>? =
             hostID.withCString { hostIDPtr in
                 systemBUID.withCString { buidPtr in
                     "SideStore".withCString { hostNamePtr -> UnsafeMutablePointer<IdeviceFfiError>? in
-                        var err = lockdownd_pair(lockdown, hostIDPtr, buidPtr, hostNamePtr, &watchPairing)
-                        var waited = 0
-                        while let e = err, e.pointee.code == 30, waited < 60 {   // PairingDialogResponsePending
-                            self.safeFreeError(e)
-                            step("9: waiting for Trust on the watch… (\(waited)s)")
-                            Thread.sleep(forTimeInterval: 3.0)
-                            waited += 3
-                            err = lockdownd_pair(lockdown, hostIDPtr, buidPtr, hostNamePtr, &watchPairing)
-                        }
-                        return err
+                        lockdownd_pair(lockdown, hostIDPtr, buidPtr, hostNamePtr, &watchPairing)
                     }
                 }
             }
